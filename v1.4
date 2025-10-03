@@ -1,0 +1,119 @@
+local pl = game:GetService("Players").LocalPlayer
+local uis = game:GetService("UserInputService")
+local rs = game:GetService("RunService")
+local ws = game:GetService("Workspace")
+local PlayerGui = pl:WaitForChild("PlayerGui")
+local ragdolling = false
+
+local gui = Instance.new("ScreenGui")
+gui.ResetOnSpawn = false
+gui.Parent = PlayerGui
+
+local btn = Instance.new("ImageButton")
+btn.Size = UDim2.new(0,160,0,120)
+btn.Position = UDim2.new(1,-80,0.65,-60)
+btn.AnchorPoint = Vector2.new(1,0.5)
+btn.BackgroundTransparency = 1
+btn.Image = "rbxassetid://71963367856281"
+btn.ZIndex = 10
+btn.Parent = gui
+
+local chr, hum, hrp
+
+local function setupChar(c)
+	chr = c
+	hum = chr:WaitForChild("Humanoid")
+	hrp = chr:WaitForChild("HumanoidRootPart")
+end
+
+setupChar(pl.Character or pl.CharacterAdded:Wait())
+pl.CharacterAdded:Connect(setupChar)
+
+local savedAnimator
+local function ragdoll(state)
+	if not chr then return end
+	for _,m in ipairs(chr:GetChildren()) do
+		if m:IsA("Motor6D") then
+			m.Enabled = not state
+		end
+	end
+	hum:ChangeState(state and Enum.HumanoidStateType.Physics or Enum.HumanoidStateType.GettingUp)
+	if state then
+		local animator = hum:FindFirstChildOfClass("Animator")
+		if animator then
+			savedAnimator = animator:Clone()
+			animator:Destroy()
+		end
+	else
+		if savedAnimator then
+			savedAnimator.Parent = hum
+			savedAnimator = nil
+		end
+	end
+end
+
+local flightConn
+local function stopFlight()
+	if flightConn then
+		flightConn:Disconnect()
+		flightConn = nil
+	end
+	if hrp then hrp.AssemblyLinearVelocity = Vector3.zero end
+	ragdoll(false)
+	ragdolling = false
+end
+
+local function fling()
+	if not hrp then return end
+
+	if flightConn then
+		flightConn:Disconnect()
+		flightConn = nil
+	end
+
+	ragdolling = true
+	ragdoll(true)
+
+	local look = hrp.CFrame.LookVector.Unit
+	local upward = 20
+	local forward = 80
+	local g = ws.Gravity
+	local vy = math.sqrt(2 * g * upward)
+	hrp.AssemblyLinearVelocity = look * forward + Vector3.new(0, vy, 0)
+
+	local flipDuration = 0.5
+	local elapsed = 0
+	local startTime = tick()
+
+	local flipConn
+	flipConn = rs.Heartbeat:Connect(function(dt)
+		if not hrp or not hrp.Parent then
+			flipConn:Disconnect()
+			stopFlight()
+			return
+		end
+
+		elapsed = elapsed + dt
+		local facing = CFrame.lookAt(hrp.Position, hrp.Position + look)
+
+		if elapsed < flipDuration then
+			local alpha = elapsed / flipDuration
+			local flip = CFrame.Angles(math.rad(-180 * alpha), 0, 0)
+			hrp.CFrame = facing * flip
+		else
+			hrp.CFrame = facing * CFrame.Angles(math.rad(-180), 0, 0)
+			flipConn:Disconnect()
+		end
+	end)
+
+	task.delay(2, stopFlight)
+end
+
+uis.InputBegan:Connect(function(i,gp)
+	if gp then return end
+	if i.KeyCode == Enum.KeyCode.P then
+		fling()
+	end
+end)
+
+btn.MouseButton1Click:Connect(fling)
